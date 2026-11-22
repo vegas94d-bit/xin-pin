@@ -881,7 +881,9 @@ const state = {
     flash: 0,                   // white flash on goal
 
     keys: Object.create(null),
-    pointer: { active: false, x: 0, y: 0, side: null },
+    keyTouch: { left: 0, right: 0 },   // timestamps of the last keyboard move per side
+    pointer: { active: false, x: 0, y: 0, lastX: 0, lastY: 0, side: null, ignoreUntil: 0 },
+
 
     ai: { target: FIELD_H / 2, timer: 0 },
     hudTimer: 0,
@@ -934,6 +936,20 @@ function setScene(scene) {
     canvas.style.cursor = scene === "play" ? "none" : "default";
 }
 
+/* Drop every held key / pointer state so a new match starts clean */
+function resetInput() {
+    state.keys = Object.create(null);
+    state.pointer.active = false;
+    state.pointer.side = null;
+    state.pointer.ignoreUntil = nowMs() + 400;
+    state.keyTouch.left = 0;
+    state.keyTouch.right = 0;
+}
+
+function nowMs() {
+    return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+
 function startMatch() {
     state.mode = state.pick.mode;
     state.difficulty = state.pick.difficulty;
@@ -946,6 +962,7 @@ function startMatch() {
     state.flash = 0;
     state.shake.t = 0;
     state.time = 0;
+    resetInput();
     resetPositions();
     setScene("play");
     refreshHud();
@@ -962,6 +979,7 @@ function restartMatch() {
 function goMenu() {
     Sfx.ensure();
     Sfx.ui();
+    resetInput();
     state.particles.length = 0;
     state.trail.length = 0;
     state.live = false;
@@ -1180,6 +1198,8 @@ function moveHumanPaddle(p, dt) {
     }
 
     if (dir !== 0) {
+        /* the keyboard takes over from the mouse for a short while */
+        state.keyTouch[p.side] = nowMs();
         p.pointer = false;
         p.cy = clamp(p.cy + dir * PADDLE_SPEED * dt, p.h / 2, FIELD_H - p.h / 2);
     }
@@ -1848,9 +1868,19 @@ function toLogical(clientX, clientY) {
     };
 }
 
-function applyPointer(y, side) {
+function applyPointer(y, side, force) {
     const p = side === "left" ? state.left : state.right;
     if (!p) return;
+
+    const now = nowMs();
+    if (!force) {
+        /* right after the match starts (or after a click on an overlay button)
+           the resting cursor must not grab the paddle */
+        if (now < state.pointer.ignoreUntil) return;
+        /* the keyboard wins for a moment so mouse jitter cannot fight it */
+        if (now - (state.keyTouch[side] || 0) < 400) return;
+    }
+
     p.cy = clamp(y, p.h / 2, FIELD_H - p.h / 2);
     p.pointer = true;
 }
@@ -1858,17 +1888,28 @@ function applyPointer(y, side) {
 function handlePointer(ev) {
     if (state.scene !== "play") return;
     const pt = toLogical(ev.clientX, ev.clientY);
+    const moved = Math.abs(pt.x - state.pointer.lastX) + Math.abs(pt.y - state.pointer.lastY);
+
     state.pointer.active = true;
     state.pointer.x = pt.x;
     state.pointer.y = pt.y;
 
+    /* ignore micro-jitter of a cursor that just rests over the field */
+    if (ev.type === "pointermove" && moved < 3) {
+        ev.preventDefault();
+        return;
+    }
+
+    state.pointer.lastX = pt.x;
+    state.pointer.lastY = pt.y;
+
     if (state.mode === "ai") {
         /* the single human player always drives the left paddle */
-        applyPointer(pt.y, "left");
+        applyPointer(pt.y, "left", false);
         state.pointer.side = "left";
     } else {
         const side = pt.x < FIELD_W / 2 ? "left" : "right";
-        applyPointer(pt.y, side);
+        applyPointer(pt.y, side, false);
         state.pointer.side = side;
     }
     ev.preventDefault();
@@ -1877,6 +1918,8 @@ function handlePointer(ev) {
 canvas.addEventListener("pointermove", handlePointer, { passive: false });
 canvas.addEventListener("pointerdown", function (ev) {
     Sfx.ensure();
+    state.pointer.lastX = -999;
+    state.pointer.lastY = -999;
     handlePointer(ev);
 }, { passive: false });
 canvas.addEventListener("pointerup", function () {
@@ -1889,10 +1932,41 @@ canvas.addEventListener("pointerleave", function () {
     state.pointer.active = false;
 });
 
-window.addEventListener("keydown", function (ev) {
-    const code = ev.code;
-    let k = (ev.key || "").toLowerCase();
-    if (code === "Space") k = "space";
+/* Physical key codes first: WASD works with a Russian (or any other) layout,
+   where ev.key for the W key is "ц" and for S it is "ы". */
+const KEY_BY_CODE = {
+    KeyW: "w", KeyS: "s",
+    ArrowUp: "arrowup", ArrowDown: "arrowdown",
+    KeyP: "p", KeyR: "r", KeyM: "m", KeyT: "t",
+    Space: "space", Enter: "enter", NumpadEnter: "enter", Escape: "escape"
+};
+
+const KEY_BY_VK = {
+    87: "w", 83: "s", 38: "arrowup", 40: "arrowdown",
+    80: "p", 82: "r", 77: "m", 84: "t",
+    32: "space", 13: "enter", 27: "escape"
+};
+
+const KEY_BY_LETTER = {
+    w: "w", s: "s", p: "p", r: "r", m: "m", t: "t",
+    /* cyrillic layout fallbacks, in case ev.code is missing */
+    "ц": "w", "ы": "s", "з": "p", "к": "r", "ь": "m", "е": "t"
+};
+
+function keyName(ev) {
+    if (KEY_BY_CODE[ev.code]) return KEY_BY_CODE[ev.code];
+    const vk = ev.keyCode || ev.which || 0;
+    if (KEY_BY_VK[vk]) return KEY_BY_VK[vk];
+    const raw = (ev.key || "").toLowerCase();
+    if (KEY_BY_LETTER[raw]) return KEY_BY_LETTER[raw];
+    if (raw === "arrowup" || raw === "arrowdown") return raw;
+    if (raw === " " || raw === "spacebar") return "space";
+    return "";
+}
+
+function onKeyDown(ev) {
+    const k = keyName(ev);
+    if (!k) return;
 
     /* keys that must not scroll the page */
     if (k === "space" || k === "arrowup" || k === "arrowdown") ev.preventDefault();
@@ -1911,31 +1985,53 @@ window.addEventListener("keydown", function (ev) {
         return;
     }
     if (k === "r") {
+        ev.preventDefault();
         restartMatch();
         return;
     }
     if (k === "m") {
+        ev.preventDefault();
         goMenu();
         return;
     }
     if (k === "t") {
         toggleSound();
+        return;
     }
-});
+    if (k === "escape") {
+        if (state.scene === "play") setScene("pause");
+    }
+}
 
-window.addEventListener("keyup", function (ev) {
-    const code = ev.code;
-    let k = (ev.key || "").toLowerCase();
-    if (code === "Space") k = "space";
+function onKeyUp(ev) {
+    const k = keyName(ev);
     if (k === "w" || k === "s" || k === "arrowup" || k === "arrowdown") {
         state.keys[k] = false;
     }
-});
+}
 
-/* pause automatically when the window loses focus */
+/* capture phase on document: keys work even when a button keeps the focus */
+document.addEventListener("keydown", onKeyDown, true);
+document.addEventListener("keyup", onKeyUp, true);
+
+/* release the focus after a button click so Space / Enter never re-trigger it */
+document.addEventListener("click", function (ev) {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    const btn = target.closest("button");
+    if (btn && btn.blur) btn.blur();
+}, true);
+
+/* pause automatically when the whole window loses focus */
 window.addEventListener("blur", function () {
     state.keys = Object.create(null);
-    if (state.scene === "play") setScene("pause");
+    setTimeout(function () {
+        if (!document.hasFocus() && state.scene === "play") setScene("pause");
+    }, 60);
+});
+
+window.addEventListener("focus", function () {
+    state.keys = Object.create(null);
 });
 
 /* ---------------------------------------------------------------- Buttons --- */
