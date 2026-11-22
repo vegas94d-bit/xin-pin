@@ -190,13 +190,33 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 18px;
-        padding: 4% 6%;
+        /* flex-start + auto margins below keeps the content centred when it fits
+           and prevents the top from being cut off when it does not */
+        justify-content: flex-start;
+        gap: clamp(7px, 1.5vh, 16px);
+        padding: clamp(10px, 2.4vh, 22px) 5%;
         text-align: center;
         background: rgba(5, 4, 10, .82);
         backdrop-filter: blur(3px);
         z-index: 3;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--gold-dim) transparent;
+    }
+
+    .overlay > * {
+        flex: 0 0 auto;
+        max-width: 100%;
+    }
+
+    .overlay > *:first-child {
+        margin-top: auto;
+    }
+
+    .overlay > *:last-child {
+        margin-bottom: auto;
     }
 
     .overlay.hidden {
@@ -206,47 +226,50 @@
     .overlay h1 {
         margin: 0;
         font-family: var(--font-serif);
-        font-size: clamp(28px, 5.4vw, 62px);
-        letter-spacing: 6px;
+        font-size: clamp(24px, 5.2vw, 54px);
+        letter-spacing: 5px;
         color: var(--gold);
         text-shadow: 0 0 26px rgba(232, 192, 106, .35);
+        line-height: 1.12;
     }
 
     .overlay h2 {
         margin: 0;
         font-family: var(--font-serif);
-        font-size: clamp(22px, 4.2vw, 44px);
+        font-size: clamp(21px, 4vw, 40px);
         letter-spacing: 4px;
+        line-height: 1.15;
     }
 
     .overlay p {
         margin: 0;
         color: var(--paper-dim);
-        font-size: clamp(12px, 1.5vw, 16px);
-        line-height: 1.6;
+        font-size: clamp(11px, 1.45vw, 15px);
+        line-height: 1.5;
     }
 
     .seal {
         display: inline-block;
-        padding: 6px 14px;
+        padding: 4px 12px;
         border: 2px solid var(--red);
         border-radius: 6px;
         color: #ffd9dd;
         font-family: var(--font-serif);
+        font-size: clamp(10px, 1.25vw, 13px);
         letter-spacing: 3px;
         background: rgba(110, 16, 34, .35);
     }
 
     .row {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
         justify-content: center;
         align-items: center;
     }
 
     .field-label {
-        font-size: 12px;
+        font-size: clamp(10px, 1.1vw, 12px);
         letter-spacing: 2px;
         text-transform: uppercase;
         color: var(--paper-dim);
@@ -255,7 +278,7 @@
     .group {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 5px;
         align-items: center;
     }
 
@@ -267,10 +290,27 @@
     .legend {
         display: grid;
         grid-template-columns: auto auto;
-        gap: 4px 14px;
-        font-size: clamp(11px, 1.3vw, 14px);
+        gap: 2px 14px;
+        font-size: clamp(10px, 1.15vw, 13px);
+        line-height: 1.45;
         color: var(--paper-dim);
         justify-content: center;
+    }
+
+    /* compact buttons inside the overlays so nothing gets clipped */
+    .overlay .btn.big {
+        font-size: clamp(13px, 1.45vw, 16px);
+        padding: 9px 18px;
+    }
+
+    .overlay .btn.primary {
+        font-size: clamp(15px, 1.7vw, 19px);
+        padding: 10px 28px;
+    }
+
+    .overlay .btn:not(.big):not(.primary) {
+        font-size: clamp(11px, 1.25vw, 14px);
+        padding: 7px 12px;
     }
 
     kbd {
@@ -387,7 +427,6 @@
             gap: 9px;
             padding: 10px 14px;
             overflow-y: auto;
-            justify-content: flex-start;
         }
 
         .overlay .seal,
@@ -435,7 +474,6 @@
             gap: 8px;
             padding: 8px 12px;
             overflow-y: auto;
-            justify-content: flex-start;
         }
 
         .overlay .seal,
@@ -489,8 +527,7 @@
         <div class="overlay" id="screenMenu">
             <div class="seal">开始 · старт</div>
             <h1>乒乓 Пинг-понг</h1>
-            <p>Выберите режим. Побеждает тот, кто первым наберёт <b>7 очков</b>.<br>
-                Лучший результат сохраняется в этом браузере.</p>
+            <p>Первый до <b>7 очков</b>. Рекорд сохраняется в этом браузере.</p>
 
             <div class="row">
                 <button class="btn big active" id="btnModeAi" type="button">🀄 Против ИИ</button>
@@ -506,15 +543,15 @@
                 </div>
             </div>
 
+            <button class="btn primary" id="btnPlay" type="button">Начать партию</button>
+            <p id="menuRecord" style="opacity:.8"></p>
+
             <div class="legend">
                 <span>Левая ракетка</span><span><kbd>W</kbd> вверх / <kbd>S</kbd> вниз</span>
                 <span>Правая ракетка</span><span><kbd>↑</kbd> вверх / <kbd>↓</kbd> вниз</span>
                 <span>Мышь / касание</span><span>ведите по своей половине поля</span>
                 <span>Пауза</span><span><kbd>P</kbd> или <kbd>Space</kbd></span>
             </div>
-
-            <button class="btn primary" id="btnPlay" type="button">Начать партию</button>
-            <p id="menuRecord" style="opacity:.8"></p>
         </div>
 
         <!-- Экран паузы -->
